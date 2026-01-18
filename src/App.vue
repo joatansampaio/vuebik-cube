@@ -27,12 +27,17 @@
 
 		<div class="canvasWrap" ref="host">
 			<div class="hint">
-				left drag on face to turn, right drag to orbit, scroll to zoom.
-				keys:
-				<span class="kbd">q w e a s d z x c</span>
-				(shift = inverse)
-				<br/>
-				arrow keys: orbit camera (hold two for diagonal combined orbit)
+				<div v-if="!isMobile">
+					left drag on face to turn, right drag to orbit, scroll to zoom.
+					keys:
+					<span class="kbd">q w e a s d z x c</span>
+					(shift = inverse)
+					<br/>
+					arrow keys: orbit camera (hold two for diagonal combined orbit)
+				</div>
+				<div v-if="isMobile">
+					<p>Double tap to rotate, pinch to zoom.</p>
+				</div>
 				
 			</div>
 		</div>
@@ -62,7 +67,7 @@
 
 <script setup lang="ts">
 import Timer from "./components/Timer.vue";
-import { onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { createRubikGame } from "./game/cube";
 import type { RubikGame, FaceMove } from "./game/utils";
 
@@ -86,6 +91,11 @@ function updateSpeed() {
 function turn(face: FaceMove) {
 	game?.turn(face);
 }
+
+const isMobile = computed(() => {
+	const ua = navigator.userAgent;
+	return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
+});
 
 onMounted(() => {
 	if (!host.value) return;

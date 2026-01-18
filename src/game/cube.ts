@@ -10,8 +10,6 @@ const maxZoomOut = 40;
 const maxZoomIn = 5;
 /**
  * Minimal quaternion-based orbit controls.
- * Uses quaternion accumulation instead of spherical coordinates to avoid
- * gimbal lock and allow unlimited vertical rotation without clamping.
  */
 function createMiniOrbit(camera: THREE.PerspectiveCamera, dom: HTMLElement) {
 	const state = {
@@ -20,26 +18,18 @@ function createMiniOrbit(camera: THREE.PerspectiveCamera, dom: HTMLElement) {
 		lastY: 0,
 		// Quaternion representing camera's orbital orientation around target
 		orientation: new THREE.Quaternion(),
-		radius: 8,
-		target: new THREE.Vector3(0, 0, 0), // Center the cube
+		radius: 12,
+		target: new THREE.Vector3(0, 0, 0), // Always look at cube center
 	};
 
+	// Initialize with a nice viewing angle
 	const initFromSpherical = (theta: number, phi: number) => {
-		// Build initial orientation: first rotate around Y (horizontal), then around local X (vertical)
 		const qY = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), theta);
-		// phi is angle from Y axis. y = R*cos(phi).
-		// Our base (0,0,1) rotated by X(tilt) gives y = -R*sin(tilt).
-		// We want cos(phi) = -sin(tilt) -> tilt = phi - PI/2.
 		const tilt = phi - Math.PI / 2;
 		const qX = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), tilt);
-		
-		// Note on order: I want the resulting local frame to have qX applied relative to base,
-		// and then qY applied relative to world.
-		// q = qY * qX
 		state.orientation.copy(qY).multiply(qX);
 	};
 
-	// Initial rotation position
 	initFromSpherical(Math.PI * 0.25, Math.PI * 0.39);
 
 	const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
@@ -61,7 +51,6 @@ function createMiniOrbit(camera: THREE.PerspectiveCamera, dom: HTMLElement) {
 		// Normalize quaternion periodically to prevent numerical drift
 		state.orientation.normalize();
 	};
-
 	const onDown = (e: PointerEvent) => {
 		if (e.pointerType === 'touch') {
 			// Track touch points. If two or more are present, start touch orbit.
@@ -298,15 +287,21 @@ export function createRubikGame(host: HTMLElement): RubikGame {
 
 	const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
 	renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Cap pixel ratio for performance
+	
+	// Ensure canvas has proper styling
+	renderer.domElement.style.display = "block";
+	renderer.domElement.style.width = "100%";
+	renderer.domElement.style.height = "100%";
+	
 	host.appendChild(renderer.domElement);
 
-	// Use a fixed camera distance and adjust FOV dynamically based on viewport
-	const cameraDistance = 12;
+	// Camera will be positioned by orbit controller
 	const camera = new THREE.PerspectiveCamera(45, 1, 0.5, 1000);
-	camera.position.set(6, 6, 6);
-	camera.lookAt(0, 0, 0);
 
 	const orbit = createMiniOrbit(camera, renderer.domElement);
+	
+	// Force initial update to ensure camera is positioned correctly by orbit controller
+	(orbit as any).update?.();
 
 	// Lights
 	const hemi = new THREE.HemisphereLight(0xffffff, 0x223355, 3);
@@ -829,8 +824,7 @@ export function createRubikGame(host: HTMLElement): RubikGame {
 	window.addEventListener("keydown", onKey, false);
 
 	resize();
-	// Set a fixed camera distance - FOV adjustment handles sizing
-	orbit.setRadius(cameraDistance);
+	(orbit as any).update?.(); // Ensure camera position is correct
 	loop();
 
 	const reset = () => {
