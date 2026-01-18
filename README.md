@@ -1,5 +1,7 @@
 # Vue 3 + TypeScript + Vite — Vuebik Cube
 
+Play with it https://joatansampaio.github.io/vuebik-cube/
+
 Vuebik Cube is a lightweight single-page application built with **Vue 3**, **TypeScript**, and **Vite**.
 
 ## What this project is about
