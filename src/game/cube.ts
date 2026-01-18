@@ -293,15 +293,6 @@ function createMiniOrbit(camera: THREE.PerspectiveCamera, dom: HTMLElement) {
 }
 
 export function createRubikGame(host: HTMLElement): RubikGame {
-	// Detect mobile at runtime when DOM is ready
-	const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
-		|| ('ontouchstart' in window)
-		|| (window.innerWidth < 768 && window.innerHeight < 1024);
-	
-	// Calculate initial zoom based on screen size - smaller screens need more zoom out
-	const screenMin = Math.min(window.innerWidth, window.innerHeight);
-	const initialZoom = isMobile ? Math.max(18, 40 - screenMin * 0.02) : 15;
-
 	const scene = new THREE.Scene();
 	scene.background = new THREE.Color(0x0b0f16);
 
@@ -309,7 +300,9 @@ export function createRubikGame(host: HTMLElement): RubikGame {
 	renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Cap pixel ratio for performance
 	host.appendChild(renderer.domElement);
 
-	const camera = new THREE.PerspectiveCamera(32, 1, 0.5, 1000);
+	// Use a fixed camera distance and adjust FOV dynamically based on viewport
+	const cameraDistance = 12;
+	const camera = new THREE.PerspectiveCamera(45, 1, 0.5, 1000);
 	camera.position.set(6, 6, 6);
 	camera.lookAt(0, 0, 0);
 
@@ -368,8 +361,26 @@ export function createRubikGame(host: HTMLElement): RubikGame {
 	const resize = () => {
 		const w = host.clientWidth;
 		const h = host.clientHeight;
+		
+		// Fallback if container has no size yet
+		if (w === 0 || h === 0) return;
+		
 		renderer.setSize(w, h, false);
 		camera.aspect = w / h;
+		
+		const minDim = Math.min(w, h);
+		const aspectRatio = w / h;
+		
+		let targetFov: number;
+		if (aspectRatio < 1) {
+			targetFov = 50 + (1 - aspectRatio) * 15;
+		} else {
+			// Landscape mode (likely desktop)
+			targetFov = 35 + Math.max(0, (1 - minDim / 600)) * 10;
+		}
+		
+		// Clamp FOV to reasonable range
+		camera.fov = Math.max(30, Math.min(70, targetFov));
 		camera.updateProjectionMatrix();
 	};
 
@@ -818,8 +829,8 @@ export function createRubikGame(host: HTMLElement): RubikGame {
 	window.addEventListener("keydown", onKey, false);
 
 	resize();
-	// initial zoom value
-	orbit.setRadius(initialZoom);
+	// Set a fixed camera distance - FOV adjustment handles sizing
+	orbit.setRadius(cameraDistance);
 	loop();
 
 	const reset = () => {
