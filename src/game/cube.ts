@@ -3,12 +3,21 @@ import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeom
 import type { FaceMove, RubikGame, Cubie, TurnJob, DragState } from "./utils.js";
 import { roundCoord, coordKey, makeCubieMaterials, FACE_TO_TURN } from "./utils.js";
 
+const isMobileDevice = () => {
+	return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) 
+		|| window.innerWidth < 768;
+	};
+	
 const xSpacing = 1.01;
 const ySpacing = 1.01;
 const zSpacing = 1.01;
-const maxZoomOut = 30;
+const maxZoomOut = 40;
 const maxZoomIn = 5;
+const initialZoom = isMobileDevice() ? 40 : 15;
 
+const x = 0;
+const y = isMobileDevice() ? -6 : 0;
+const z = isMobileDevice() ? -3.2 : 0;
 /**
  * Minimal quaternion-based orbit controls.
  * Uses quaternion accumulation instead of spherical coordinates to avoid
@@ -22,7 +31,7 @@ function createMiniOrbit(camera: THREE.PerspectiveCamera, dom: HTMLElement) {
 		// Quaternion representing camera's orbital orientation around target
 		orientation: new THREE.Quaternion(),
 		radius: 8,
-		target: new THREE.Vector3(0, 0, 0),
+		target: new THREE.Vector3(x, y, z),
 	};
 
 	const initFromSpherical = (theta: number, phi: number) => {
@@ -64,6 +73,23 @@ function createMiniOrbit(camera: THREE.PerspectiveCamera, dom: HTMLElement) {
 	};
 
 	const onDown = (e: PointerEvent) => {
+		if (e.pointerType === 'touch') {
+			// Track touch points. If two or more are present, start touch orbit.
+			touchMap.set(e.pointerId, { x: e.clientX, y: e.clientY });
+			if (touchMap.size >= 2) {
+				isTouchOrbit = true;
+				// center between first two touches
+				const pts = Array.from(touchMap.values());
+				if (pts.length >= 2 && pts[0] && pts[1]) {
+					state.lastX = (pts[0].x + pts[1].x) / 2;
+					state.lastY = (pts[0].y + pts[1].y) / 2;
+					lastTouchDistance = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+				}
+				(dom as any).setPointerCapture?.(e.pointerId);
+			}
+			return;
+		}
+
 		// Only right mouse button should orbit.
 		if (e.button !== 2) return;
 		state.isDown = true;
@@ -72,7 +98,64 @@ function createMiniOrbit(camera: THREE.PerspectiveCamera, dom: HTMLElement) {
 		(dom as any).setPointerCapture?.(e.pointerId);
 	};
 
+	// Track touch pointers for multi-touch orbit and pinch zoom
+	const touchMap = new Map<number, { x: number; y: number }>();
+	let isTouchOrbit = false;
+	let lastTouchDistance = 0;
+
 	const onMove = (e: PointerEvent) => {
+		if (e.pointerType === 'touch') {
+			if (!touchMap.has(e.pointerId)) return;
+			touchMap.set(e.pointerId, { x: e.clientX, y: e.clientY });
+			if (!isTouchOrbit) return;
+
+			const pts = Array.from(touchMap.values());
+			if (pts.length < 2 || !pts[0] || !pts[1]) return;
+
+			const centerX = (pts[0].x + pts[1].x) / 2;
+			const centerY = (pts[0].y + pts[1].y) / 2;
+			const dx = centerX - state.lastX;
+			const dy = centerY - state.lastY;
+			state.lastX = centerX;
+			state.lastY = centerY;
+
+			// Rotation sensitivity
+			const sensitivity = 0.008;
+
+			// Calculate "up" vector to detect if we are upside down
+			const up = new THREE.Vector3(0, 1, 0).applyQuaternion(state.orientation);
+			const isUpsideDown = up.y < 0;
+
+			// Horizontal rotation (Yaw): rotate around WORLD Y axis
+			const deltaYaw = (isUpsideDown ? 1 : -1) * dx * sensitivity;
+			const qYaw = new THREE.Quaternion().setFromAxisAngle(
+				new THREE.Vector3(0, 1, 0),
+				deltaYaw
+			);
+
+			// Vertical rotation (Pitch): rotate around camera's LOCAL X axis
+			const deltaPitch = -dy * sensitivity;
+			const qPitch = new THREE.Quaternion().setFromAxisAngle(
+				new THREE.Vector3(1, 0, 0), 
+				deltaPitch
+			);
+
+			// Apply pitch locally (multiply) and yaw globally (premultiply)
+			state.orientation.multiply(qPitch);
+			state.orientation.premultiply(qYaw);
+
+			// Pinch zoom: adjust radius by change in touch distance
+			if (pts[0] && pts[1]) {
+				const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+				const deltaDist = dist - lastTouchDistance;
+				lastTouchDistance = dist;
+				state.radius = clamp(state.radius - deltaDist * 0.02, maxZoomIn, maxZoomOut);
+			}
+
+			update();
+			return;
+		}
+
 		if (!state.isDown) return;
 		const dx = e.clientX - state.lastX;
 		const dy = e.clientY - state.lastY;
@@ -111,6 +194,14 @@ function createMiniOrbit(camera: THREE.PerspectiveCamera, dom: HTMLElement) {
 	};
 
 	const onUp = (e: PointerEvent) => {
+		if (e.pointerType === 'touch') {
+			touchMap.delete(e.pointerId);
+			if (touchMap.size < 2) {
+				isTouchOrbit = false;
+				lastTouchDistance = 0;
+			}
+			return;
+		}
 		if (e.button !== 2) return;
 		state.isDown = false;
 	};
@@ -625,7 +716,10 @@ export function createRubikGame(host: HTMLElement): RubikGame {
 	};
 
 	const onPointerDown = (e: PointerEvent) => {
-		if (e.button !== 0) return; // Only left click
+		// If this is a touch event and more than one touch is active, reserve
+		// that interaction for orbit/pinch and don't begin a face drag.
+		if (e.pointerType === 'touch' && activeTouchPointers.size > 1) return;
+		if (e.button !== 0) return; // Only left click / single touch
 		if (job) return; // Don't start new drag during animation
 
 		const rect = renderer.domElement.getBoundingClientRect();
@@ -712,11 +806,21 @@ export function createRubikGame(host: HTMLElement): RubikGame {
 	renderer.domElement.addEventListener("pointermove", onPointerMove, { passive: true });
 	renderer.domElement.addEventListener("pointerup", onPointerUp, { passive: true });
 
+	// Track active touch pointers globally so we can distinguish single-touch (face drag)
+	// from multi-touch (orbit/pinch) interactions on mobile devices.
+	const activeTouchPointers = new Set<number>();
+	const trackTouchDown = (e: PointerEvent) => { if (e.pointerType === 'touch') activeTouchPointers.add(e.pointerId); };
+	const trackTouchUp = (e: PointerEvent) => { if (e.pointerType === 'touch') activeTouchPointers.delete(e.pointerId); };
+	window.addEventListener('pointerdown', trackTouchDown, true);
+	window.addEventListener('pointerup', trackTouchUp, true);
+	window.addEventListener('pointercancel', trackTouchUp, true);
+
 	window.addEventListener("resize", onResize, false);
 	window.addEventListener("keydown", onKey, false);
 
 	resize();
-	orbit.setRadius(15);
+	// initial zoom value
+	orbit.setRadius(initialZoom);
 	loop();
 
 	const reset = () => {
