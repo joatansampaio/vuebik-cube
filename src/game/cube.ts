@@ -3,21 +3,11 @@ import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeom
 import type { FaceMove, RubikGame, Cubie, TurnJob, DragState } from "./utils.js";
 import { roundCoord, coordKey, makeCubieMaterials, FACE_TO_TURN } from "./utils.js";
 
-const isMobileDevice = () => {
-	return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) 
-		|| window.innerWidth < 768;
-	};
-	
 const xSpacing = 1.01;
 const ySpacing = 1.01;
 const zSpacing = 1.01;
 const maxZoomOut = 40;
 const maxZoomIn = 5;
-const initialZoom = isMobileDevice() ? 40 : 15;
-
-const x = 0;
-const y = isMobileDevice() ? -6 : 0;
-const z = isMobileDevice() ? -3.2 : 0;
 /**
  * Minimal quaternion-based orbit controls.
  * Uses quaternion accumulation instead of spherical coordinates to avoid
@@ -31,7 +21,7 @@ function createMiniOrbit(camera: THREE.PerspectiveCamera, dom: HTMLElement) {
 		// Quaternion representing camera's orbital orientation around target
 		orientation: new THREE.Quaternion(),
 		radius: 8,
-		target: new THREE.Vector3(x, y, z),
+		target: new THREE.Vector3(0, 0, 0), // Center the cube
 	};
 
 	const initFromSpherical = (theta: number, phi: number) => {
@@ -61,8 +51,8 @@ function createMiniOrbit(camera: THREE.PerspectiveCamera, dom: HTMLElement) {
 	 * This avoids 'lookAt' flipping issues at the poles.
 	 */
 	const update = () => {
-		// initial offset to position the camera
-		const offset = new THREE.Vector3(0.45, -0.55, state.radius);
+		// Position camera directly at radius distance from target (centered)
+		const offset = new THREE.Vector3(0, 0, state.radius);
 		offset.applyQuaternion(state.orientation);
 
 		camera.position.copy(state.target).add(offset);
@@ -303,11 +293,20 @@ function createMiniOrbit(camera: THREE.PerspectiveCamera, dom: HTMLElement) {
 }
 
 export function createRubikGame(host: HTMLElement): RubikGame {
+	// Detect mobile at runtime when DOM is ready
+	const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+		|| ('ontouchstart' in window)
+		|| (window.innerWidth < 768 && window.innerHeight < 1024);
+	
+	// Calculate initial zoom based on screen size - smaller screens need more zoom out
+	const screenMin = Math.min(window.innerWidth, window.innerHeight);
+	const initialZoom = isMobile ? Math.max(18, 40 - screenMin * 0.02) : 15;
+
 	const scene = new THREE.Scene();
 	scene.background = new THREE.Color(0x0b0f16);
 
 	const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
-	renderer.setPixelRatio(window.devicePixelRatio);
+	renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Cap pixel ratio for performance
 	host.appendChild(renderer.domElement);
 
 	const camera = new THREE.PerspectiveCamera(32, 1, 0.5, 1000);
